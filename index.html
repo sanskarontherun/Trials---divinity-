@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Divinity — Read PDFs Aloud</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='16' fill='%231c1611'/%3E%3Cpath d='M50 20c8 14 16 20 16 34a16 16 0 1 1-32 0c0-14 8-20 16-34z' fill='%23c9963c'/%3E%3Cpath d='M50 42c4 7 8 10 8 17a8 8 0 1 1-16 0c0-7 4-10 8-17z' fill='%231c1611'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --bg:#1c1611;
+    --surface:#241d16;
+    --surface-2:#2e251b;
+    --line:#4a3c2a;
+    --text:#ece4d3;
+    --muted:#a08f74;
+    --amber:#c9963c;
+    --amber-dim:#8a6526;
+    --teal:#b5563a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+  }
+  ::selection{background:var(--amber-dim);}
+
+  header{
+    padding:28px 32px 20px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  .brand-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+  .brand-mark{
+    flex-shrink:0;
+    filter:drop-shadow(0 0 8px rgba(201,150,60,0.35));
+  }
+  .brand{
+    font-family:'Fraunces',serif;
+    font-size:26px;
+    font-weight:600;
+    letter-spacing:0.01em;
+  }
+  .brand .dot{color:var(--amber);}
+  .tagline{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--muted);
+    letter-spacing:0.03em;
+  }
+
+  main{
+    flex:1;
+    display:grid;
+    grid-template-columns:1fr;
+    gap:0;
+    max-width:900px;
+    width:100%;
+    margin:0 auto;
+    padding:0 24px 40px;
+  }
+
+  /* Upload zone */
+  #dropzone{
+    margin-top:32px;
+    border:1px dashed var(--line);
+    border-radius:6px;
+    padding:56px 24px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .2s ease, background .2s ease;
+  }
+  #dropzone:hover, #dropzone.drag{
+    border-color:var(--amber-dim);
+    background:var(--surface);
+  }
+  #dropzone .icon{margin-bottom:14px;}
+  #dropzone .primary{font-size:15px;margin-bottom:6px;}
+  #dropzone .secondary{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+  #fileInput{display:none;}
+
+  /* Reader */
+  #reader{display:none;margin-top:28px;}
+  #reader.active{display:block;}
+
+  .doc-meta{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--muted);
+    margin-bottom:16px;
+  }
+  .doc-meta button{
+    background:none;
+    border:none;
+    color:var(--muted);
+    font-family:inherit;
+    font-size:12px;
+    cursor:pointer;
+    text-decoration:underline;
+  }
+  .doc-meta button:hover{color:var(--text);}
+
+  #textPane{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:28px 32px;
+    height:280px;
+    overflow-y:auto;
+    font-family:'Fraunces',serif;
+    font-size:19px;
+    line-height:1.75;
+    font-weight:400;
+  }
+  #textPane span.sentence{transition:color .15s ease, background .15s ease;padding:1px 0;}
+  #textPane span.sentence.active{
+    color:#fff;
+    background:linear-gradient(90deg, rgba(232,163,61,0.22), rgba(232,163,61,0.05));
+    border-radius:3px;
+  }
+  #textPane span.sentence.done{color:var(--muted);}
+
+  /* Equalizer signature element */
+  #eq{
+    display:flex;
+    align-items:flex-end;
+    gap:3px;
+    height:34px;
+    margin:20px 0 6px;
+  }
+  #eq .bar{
+    width:4px;
+    background:var(--teal);
+    border-radius:2px;
+    height:4px;
+    transition:height .12s ease;
+  }
+  #eq.speaking .bar{animation:eqmove 1s ease-in-out infinite;}
+  #eq .bar:nth-child(1){animation-delay:0s;}
+  #eq .bar:nth-child(2){animation-delay:.1s;}
+  #eq .bar:nth-child(3){animation-delay:.2s;}
+  #eq .bar:nth-child(4){animation-delay:.3s;}
+  #eq .bar:nth-child(5){animation-delay:.4s;}
+  #eq .bar:nth-child(6){animation-delay:.15s;}
+  #eq .bar:nth-child(7){animation-delay:.25s;}
+  #eq .bar:nth-child(8){animation-delay:.05s;}
+  @keyframes eqmove{
+    0%,100%{height:4px;}
+    50%{height:32px;}
+  }
+
+  /* Transport */
+  #transport{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    margin-top:8px;
+  }
+  .tbtn{
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    width:40px;height:40px;
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+    font-size:15px;
+    transition:border-color .15s ease, transform .1s ease;
+  }
+  .tbtn:hover{border-color:var(--amber-dim);}
+  .tbtn:active{transform:scale(0.94);}
+  #playBtn{
+    width:56px;height:56px;
+    background:var(--amber);
+    color:#1a1a1a;
+    border:none;
+    font-size:18px;
+  }
+  #playBtn:hover{background:#f0b25b;}
+
+  #progressWrap{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  #progressBar{
+    height:4px;
+    background:var(--line);
+    border-radius:2px;
+    overflow:hidden;
+    cursor:pointer;
+  }
+  #progressFill{
+    height:100%;
+    background:var(--amber);
+    width:0%;
+  }
+  #progressLabel{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+
+  /* Controls deck */
+  #deck{
+    margin-top:28px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:22px 24px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px 28px;
+  }
+  @media (max-width:560px){#deck{grid-template-columns:1fr;}}
+
+  .control label{
+    display:block;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    margin-bottom:8px;
+  }
+  select{
+    width:100%;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:10px 12px;
+    border-radius:4px;
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+  }
+  .slider-row{display:flex;align-items:center;gap:10px;}
+  input[type=range]{
+    flex:1;
+    accent-color:var(--amber);
+  }
+  .slider-val{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--amber);
+    width:34px;
+    text-align:right;
+  }
+
+  footer{
+    text-align:center;
+    padding:18px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+
+  .status-msg{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--muted);
+    margin-top:10px;
+  }
+
+  /* Trial badge */
+  .trial-badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    letter-spacing:.03em;
+  }
+  .trial-badge.warn{color:var(--teal);}
+  .trial-badge b{color:var(--amber);font-weight:600;}
+
+  /* Locked overlay on the text pane */
+  #textPaneWrap{position:relative;}
+  #lockOverlay{
+    display:none;
+    position:absolute;
+    inset:0;
+    background:rgba(28,22,17,0.92);
+    border-radius:6px;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:24px;
+    gap:10px;
+  }
+  #lockOverlay.show{display:flex;}
+  #lockOverlay .lock-icon{font-size:26px;}
+  #lockOverlay .lock-title{
+    font-family:'Fraunces',serif;
+    font-size:19px;
+    color:var(--text);
+  }
+  #lockOverlay .lock-sub{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--muted);
+    max-width:320px;
+  }
+  #lockOverlay .upgrade-btn{
+    margin-top:6px;
+    background:var(--amber);
+    color:#1a1a1a;
+    border:none;
+    padding:10px 20px;
+    border-radius:4px;
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  #lockOverlay .upgrade-btn:hover{background:#f0b25b;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand-row">
+    <svg class="brand-mark" viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+      <defs>
+        <linearGradient id="flameGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#f0c374"/>
+          <stop offset="55%" stop-color="#c9963c"/>
+          <stop offset="100%" stop-color="#8a6526"/>
+        </linearGradient>
+      </defs>
+      <path d="M256 90
+               C 292 138, 328 170, 328 220
+               C 328 262, 296 292, 256 292
+               C 216 292, 184 262, 184 220
+               C 184 170, 220 138, 256 90 Z"
+            fill="url(#flameGrad)"/>
+      <path d="M256 152
+               C 274 174, 292 190, 292 216
+               C 292 238, 276 252, 256 252
+               C 236 252, 220 238, 220 216
+               C 220 190, 238 174, 256 152 Z"
+            fill="#1c1611" opacity="0.55"/>
+    </svg>
+    <div>
+      <div class="brand">Divinity<span class="dot">.</span></div>
+      <div class="tagline">GIVEN VOICE FROM ABOVE</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <div class="tagline" id="voiceCount">loading voices…</div>
+    <div class="trial-badge" id="trialBadge">TRIAL — <b id="trialTime">2:00</b> LEFT</div>
+  </div>
+</header>
+
+<main>
+  <div id="dropzone">
+    <svg class="icon" viewBox="0 0 512 512" width="40" height="40" aria-hidden="true">
+      <defs>
+        <linearGradient id="flameGradDrop" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#f0c374"/>
+          <stop offset="55%" stop-color="#c9963c"/>
+          <stop offset="100%" stop-color="#8a6526"/>
+        </linearGradient>
+      </defs>
+      <path d="M256 90
+               C 292 138, 328 170, 328 220
+               C 328 262, 296 292, 256 292
+               C 216 292, 184 262, 184 220
+               C 184 170, 220 138, 256 90 Z"
+            fill="url(#flameGradDrop)"/>
+      <path d="M256 152
+               C 274 174, 292 190, 292 216
+               C 292 238, 276 252, 256 252
+               C 236 252, 220 238, 220 216
+               C 220 190, 238 174, 256 152 Z"
+            fill="#1c1611" opacity="0.55"/>
+    </svg>
+    <div class="primary">Drop a PDF here, or click to choose one</div>
+    <div class="secondary">NOTHING LEAVES YOUR BROWSER — PARSED AND READ LOCALLY</div>
+    <input type="file" id="fileInput" accept="application/pdf">
+  </div>
+
+  <div id="reader">
+    <div class="doc-meta">
+      <span id="docName">document.pdf</span>
+      <button id="newFileBtn">choose a different file</button>
+    </div>
+
+    <div id="textPaneWrap">
+      <div id="textPane"></div>
+      <div id="lockOverlay">
+        <div class="lock-icon">🔒</div>
+        <div class="lock-title">Trial playback limit reached</div>
+        <div class="lock-sub">You've used your 2 minutes of free listening. Upgrade to Divinity Pro for unlimited playback, all voices, and offline export.</div>
+        <button class="upgrade-btn" id="upgradeBtn">Upgrade to continue</button>
+      </div>
+    </div>
+
+    <div id="eq">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+
+    <div id="transport">
+      <button class="tbtn" id="backBtn" title="Previous sentence">&#9664;&#9664;</button>
+      <button class="tbtn" id="playBtn" title="Play/Pause">&#9654;</button>
+      <button class="tbtn" id="fwdBtn" title="Next sentence">&#9654;&#9654;</button>
+      <div id="progressWrap">
+        <div id="progressBar"><div id="progressFill"></div></div>
+        <div id="progressLabel">sentence 0 / 0</div>
+      </div>
+    </div>
+
+    <div class="status-msg" id="statusMsg"></div>
+
+    <div id="deck">
+      <div class="control">
+        <label>Voice</label>
+        <select id="voiceSelect"></select>
+      </div>
+      <div class="control">
+        <label>Speed</label>
+        <div class="slider-row">
+          <input type="range" id="rateSlider" min="0.5" max="1.8" step="0.05" value="1">
+          <span class="slider-val" id="rateVal">1.0x</span>
+        </div>
+      </div>
+      <div class="control">
+        <label>Pitch</label>
+        <div class="slider-row">
+          <input type="range" id="pitchSlider" min="0" max="2" step="0.05" value="1">
+          <span class="slider-val" id="pitchVal">1.0</span>
+        </div>
+      </div>
+      <div class="control">
+        <label>Volume</label>
+        <div class="slider-row">
+          <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1">
+          <span class="slider-val" id="volVal">100%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>Uses your browser's built-in speech synthesis — voice options depend on your device and OS.</footer>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const reader = document.getElementById('reader');
+const docName = document.getElementById('docName');
+const textPane = document.getElementById('textPane');
+const newFileBtn = document.getElementById('newFileBtn');
+const voiceSelect = document.getElementById('voiceSelect');
+const voiceCount = document.getElementById('voiceCount');
+const rateSlider = document.getElementById('rateSlider');
+const pitchSlider = document.getElementById('pitchSlider');
+const volSlider = document.getElementById('volSlider');
+const rateVal = document.getElementById('rateVal');
+const pitchVal = document.getElementById('pitchVal');
+const volVal = document.getElementById('volVal');
+const playBtn = document.getElementById('playBtn');
+const backBtn = document.getElementById('backBtn');
+const fwdBtn = document.getElementById('fwdBtn');
+const progressFill = document.getElementById('progressFill');
+const progressLabel = document.getElementById('progressLabel');
+const progressBar = document.getElementById('progressBar');
+const eq = document.getElementById('eq');
+const statusMsg = document.getElementById('statusMsg');
+
+let sentences = [];
+let sentenceEls = [];
+let currentIndex = 0;
+let isPlaying = false;
+let isPaused = false;
+let voices = [];
+
+// ---------- Trial lock ----------
+const TRIAL_SECONDS_LIMIT = 2 * 60; // 2 minutes of locked playback
+let trialSecondsUsed = 0;
+let trialLocked = false;
+let trialInterval = null;
+const trialBadge = document.getElementById('trialBadge');
+const trialTime = document.getElementById('trialTime');
+const lockOverlay = document.getElementById('lockOverlay');
+const upgradeBtn = document.getElementById('upgradeBtn');
+
+function formatTrialTime(sec){
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+function updateTrialBadge(){
+  const remaining = Math.max(0, TRIAL_SECONDS_LIMIT - trialSecondsUsed);
+  trialTime.textContent = formatTrialTime(remaining);
+  trialBadge.classList.toggle('warn', remaining <= 30);
+}
+
+function startTrialTimer(){
+  if(trialInterval) return;
+  trialInterval = setInterval(() => {
+    trialSecondsUsed += 1;
+    updateTrialBadge();
+    if(trialSecondsUsed >= TRIAL_SECONDS_LIMIT){
+      lockTrial();
+    }
+  }, 1000);
+}
+
+function stopTrialTimer(){
+  clearInterval(trialInterval);
+  trialInterval = null;
+}
+
+function lockTrial(){
+  trialLocked = true;
+  stopTrialTimer();
+  stopSpeaking();
+  lockOverlay.classList.add('show');
+  playBtn.disabled = true;
+  backBtn.disabled = true;
+  fwdBtn.disabled = true;
+  progressBar.style.pointerEvents = 'none';
+  playBtn.style.opacity = '0.5';
+  statusMsg.textContent = 'trial limit reached — upgrade to keep listening';
+}
+
+upgradeBtn.addEventListener('click', () => {
+  window.open('https://t.me/Divinity_itis', '_blank');
+});
+
+// ---------- Voice loading ----------
+function loadVoices(){
+  voices = speechSynthesis.getVoices();
+  voiceSelect.innerHTML = '';
+  if(voices.length === 0){
+    voiceCount.textContent = 'no voices found';
+    return;
+  }
+  // Prefer higher quality / natural-sounding voices first if labeled
+  const sorted = [...voices].sort((a,b)=>{
+    const score = v => (/natural|premium|enhanced/i.test(v.name) ? -1 : 0);
+    return score(a) - score(b);
+  });
+  sorted.forEach((v, i) => {
+    const opt = document.createElement('option');
+    opt.value = voices.indexOf(v);
+    opt.textContent = `${v.name} (${v.lang})`;
+    voiceSelect.appendChild(opt);
+  });
+  voiceCount.textContent = `${voices.length} VOICE${voices.length===1?'':'S'} AVAILABLE`;
+}
+speechSynthesis.onvoiceschanged = loadVoices;
+loadVoices();
+
+rateSlider.addEventListener('input', () => rateVal.textContent = parseFloat(rateSlider.value).toFixed(2) + 'x');
+pitchSlider.addEventListener('input', () => pitchVal.textContent = parseFloat(pitchSlider.value).toFixed(2));
+volSlider.addEventListener('input', () => volVal.textContent = Math.round(volSlider.value*100) + '%');
+
+// ---------- File handling ----------
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if(e.target.files.length) handleFile(e.target.files[0]);
+});
+newFileBtn.addEventListener('click', () => {
+  stopSpeaking();
+  reader.classList.remove('active');
+  dropzone.style.display = 'block';
+  fileInput.value = '';
+});
+
+async function handleFile(file){
+  if(file.type !== 'application/pdf'){
+    alert('Please choose a PDF file.');
+    return;
+  }
+  docName.textContent = file.name;
+  statusMsg.textContent = 'extracting text…';
+  dropzone.style.display = 'none';
+  reader.classList.add('active');
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  let fullText = '';
+  for(let p = 1; p <= pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(item => item.str).join(' ');
+    fullText += pageText + ' ';
+    statusMsg.textContent = `extracting text… page ${p} of ${pdf.numPages}`;
+  }
+
+  sentences = splitIntoSentences(fullText);
+  renderSentences();
+  currentIndex = 0;
+  updateProgress();
+  statusMsg.textContent = `ready — ${sentences.length} sentences, ${pdf.numPages} pages`;
+}
+
+function splitIntoSentences(text){
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  const raw = cleaned.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [cleaned];
+  return raw.map(s => s.trim()).filter(s => s.length > 0);
+}
+
+function renderSentences(){
+  textPane.innerHTML = '';
+  sentenceEls = sentences.map((s, i) => {
+    const span = document.createElement('span');
+    span.className = 'sentence';
+    span.textContent = s + ' ';
+    span.dataset.index = i;
+    span.addEventListener('click', () => {
+      stopSpeaking();
+      currentIndex = i;
+      updateProgress();
+      if(isPlaying) speakCurrent();
+    });
+    textPane.appendChild(span);
+    return span;
+  });
+}
+
+// ---------- Speech control ----------
+function speakCurrent(){
+  if(currentIndex >= sentences.length){
+    isPlaying = false;
+    playBtn.innerHTML = '&#9654;';
+    eq.classList.remove('speaking');
+    stopTrialTimer();
+    statusMsg.textContent = 'finished';
+    return;
+  }
+  const utter = new SpeechSynthesisUtterance(sentences[currentIndex]);
+  const vIdx = voiceSelect.value;
+  if(voices[vIdx]) utter.voice = voices[vIdx];
+  utter.rate = parseFloat(rateSlider.value);
+  utter.pitch = parseFloat(pitchSlider.value);
+  utter.volume = parseFloat(volSlider.value);
+
+  highlightCurrent();
+
+  utter.onend = () => {
+    if(!isPlaying) return;
+    currentIndex++;
+    updateProgress();
+    speakCurrent();
+  };
+  utter.onerror = () => {
+    isPlaying = false;
+    eq.classList.remove('speaking');
+  };
+
+  speechSynthesis.speak(utter);
+}
+
+function highlightCurrent(){
+  sentenceEls.forEach((el, i) => {
+    el.classList.toggle('active', i === currentIndex);
+    el.classList.toggle('done', i < currentIndex);
+  });
+  const activeEl = sentenceEls[currentIndex];
+  if(activeEl) activeEl.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
+function stopSpeaking(){
+  speechSynthesis.cancel();
+  isPlaying = false;
+  playBtn.innerHTML = '&#9654;';
+  eq.classList.remove('speaking');
+  stopTrialTimer();
+}
+
+function updateProgress(){
+  const pct = sentences.length ? (currentIndex / sentences.length) * 100 : 0;
+  progressFill.style.width = pct + '%';
+  progressLabel.textContent = `sentence ${Math.min(currentIndex+1, sentences.length)} / ${sentences.length}`;
+}
+
+playBtn.addEventListener('click', () => {
+  if(sentences.length === 0 || trialLocked) return;
+  if(isPlaying){
+    stopSpeaking();
+  } else {
+    isPlaying = true;
+    playBtn.innerHTML = '&#10073;&#10073;';
+    eq.classList.add('speaking');
+    statusMsg.textContent = 'reading…';
+    startTrialTimer();
+    speakCurrent();
+  }
+});
+
+backBtn.addEventListener('click', () => {
+  stopSpeaking();
+  currentIndex = Math.max(0, currentIndex - 1);
+  updateProgress();
+  highlightCurrent();
+});
+fwdBtn.addEventListener('click', () => {
+  stopSpeaking();
+  currentIndex = Math.min(sentences.length - 1, currentIndex + 1);
+  updateProgress();
+  highlightCurrent();
+});
+progressBar.addEventListener('click', (e) => {
+  if(!sentences.length) return;
+  const rect = progressBar.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  stopSpeaking();
+  currentIndex = Math.min(sentences.length - 1, Math.max(0, Math.floor(pct * sentences.length)));
+  updateProgress();
+  highlightCurrent();
+});
+</script>
+</body>
+</html>
